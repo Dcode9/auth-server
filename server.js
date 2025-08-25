@@ -6,9 +6,8 @@ const GoogleStrategy = require('passport-google-oauth20').Strategy;
 const { createClient } = require('@vercel/kv');
 require('dotenv').config();
 
-// --- ENVIRONMENT VARIABLE VALIDATION ---
-// This block will check for all required secrets and crash with a clear
-// error message if any are missing. This is crucial for debugging on Vercel.
+// --- ENVIRONMENT VARIABLE VALIDATION (IMPROVED FOR DEBUGGING) ---
+console.log('--- Checking Environment Variables ---');
 const requiredEnvVars = [
   'GOOGLE_CLIENT_ID',
   'GOOGLE_CLIENT_SECRET',
@@ -17,20 +16,31 @@ const requiredEnvVars = [
   'KV_URL',
   'KV_TOKEN'
 ];
+let allVarsPresent = true;
 
 for (const varName of requiredEnvVars) {
-  if (!process.env[varName]) {
-    console.error(`FATAL ERROR: Environment variable "${varName}" is not defined.`);
-    // Exit the process with an error code, which Vercel will log.
-    process.exit(1);
+  if (process.env[varName]) {
+    console.log(`[OK] ${varName} is present.`);
+  } else {
+    console.error(`[FATAL ERROR] Environment variable "${varName}" is NOT DEFINED.`);
+    allVarsPresent = false;
   }
 }
+console.log('------------------------------------');
+
+// Exit gracefully if any required variable is missing.
+if (!allVarsPresent) {
+  console.error('One or more required environment variables are missing. Exiting.');
+  process.exit(1);
+}
+
 
 // --- INITIALIZATION ---
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 // --- VERCEL KV DATABASE CLIENT ---
+// This will now only run if the variables were confirmed to be present.
 const kv = createClient({
   url: process.env.KV_URL,
   token: process.env.KV_TOKEN,
