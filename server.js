@@ -3,16 +3,34 @@ const express = require('express');
 const session = require('express-session');
 const passport = require('passport');
 const GoogleStrategy = require('passport-google-oauth20').Strategy;
-const { createClient } = require('@vercel/kv'); // Vercel's Key-Value store client
+const { createClient } = require('@vercel/kv');
 require('dotenv').config();
+
+// --- ENVIRONMENT VARIABLE VALIDATION ---
+// This block will check for all required secrets and crash with a clear
+// error message if any are missing. This is crucial for debugging on Vercel.
+const requiredEnvVars = [
+  'GOOGLE_CLIENT_ID',
+  'GOOGLE_CLIENT_SECRET',
+  'COOKIE_SECRET',
+  'ADMIN_PASSWORD',
+  'KV_URL',
+  'KV_TOKEN'
+];
+
+for (const varName of requiredEnvVars) {
+  if (!process.env[varName]) {
+    console.error(`FATAL ERROR: Environment variable "${varName}" is not defined.`);
+    // Exit the process with an error code, which Vercel will log.
+    process.exit(1);
+  }
+}
 
 // --- INITIALIZATION ---
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 // --- VERCEL KV DATABASE CLIENT ---
-// Vercel automatically provides the necessary environment variables (KV_URL, etc.)
-// when you connect a KV store to your project.
 const kv = createClient({
   url: process.env.KV_URL,
   token: process.env.KV_TOKEN,
@@ -26,7 +44,7 @@ app.use(session({
     secret: process.env.COOKIE_SECRET,
     resave: false,
     saveUninitialized: false,
-    cookie: { secure: process.env.NODE_ENV === 'production' } // Use secure cookies in production
+    cookie: { secure: process.env.NODE_ENV === 'production' }
 }));
 
 app.use(passport.initialize());
@@ -41,7 +59,6 @@ passport.use(new GoogleStrategy({
   async (accessToken, refreshToken, profile, done) => {
     const email = profile.emails[0].value;
     
-    // Check if user exists in our KV store
     let user = await kv.get(email);
 
     if (!user) {
@@ -50,9 +67,8 @@ passport.use(new GoogleStrategy({
             name: profile.displayName,
             email: email,
             avatarUrl: profile.photos[0].value,
-            credits: 100 // Default credits
+            credits: 100
         };
-        // Save the new user to the KV store
         await kv.set(email, JSON.stringify(newUser));
     } else {
         console.log(`Existing user logged in: ${email}`);
@@ -83,7 +99,7 @@ app.get('/auth/google/callback',
         domain: '.dverse.fun',
         path: '/',
         httpOnly: true,
-        secure: process.env.NODE_ENV === 'production', // Use secure cookies in production
+        secure: process.env.NODE_ENV === 'production',
         sameSite: 'Lax'
     });
 
@@ -112,7 +128,7 @@ app.get('/api/user', async (req, res) => {
 const basicAuth = require('express-basic-auth');
 
 app.use('/admin', basicAuth({
-    users: { 'admin': process.env.ADMIN_PASSWORD || 'supersecret' },
+    users: { 'admin': process.env.ADMIN_PASSWORD },
     challenge: true,
     realm: 'AdminArea',
 }));
@@ -120,8 +136,6 @@ app.use('/admin', basicAuth({
 // GET route for the admin page
 app.get('/admin', async (req, res) => {
     let userListHtml = '';
-    // To list all users, we need to get all keys.
-    // Note: In a large-scale application, scanning all keys can be slow.
     const userEmails = await kv.keys('*'); 
 
     for (const email of userEmails) {
