@@ -4,7 +4,8 @@ const session = require('express-session');
 const passport = require('passport');
 const GoogleStrategy = require('passport-google-oauth20').Strategy;
 const Redis = require('ioredis');
-const cors = require('cors'); // Import the CORS library
+const cors = require('cors');
+const cookieParser = require('cookie-parser'); // **FIX:** Import the cookie-parser library
 require('dotenv').config();
 
 // --- INITIALIZATION ---
@@ -19,24 +20,22 @@ kv.on('error', (err) => console.error('Redis connection error:', err));
 
 // --- MIDDLEWARE SETUP ---
 
-// **FIX:** Using a more robust CORS configuration function for serverless environments.
 const allowedOrigins = ['https://dverse.fun', 'https://games.dverse.fun'];
 const corsOptions = {
   origin: function (origin, callback) {
-    // Allow requests with no origin (like mobile apps or curl requests)
-    if (!origin) return callback(null, true);
-    if (allowedOrigins.indexOf(origin) === -1) {
-      const msg = 'The CORS policy for this site does not allow access from the specified Origin.';
-      return callback(new Error(msg), false);
+    if (!origin || allowedOrigins.indexOf(origin) !== -1) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
     }
-    return callback(null, true);
   },
-  credentials: true // This is crucial for sending cookies
+  credentials: true
 };
 app.use(cors(corsOptions));
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+app.use(cookieParser()); // **FIX:** Use the cookie-parser middleware
 
 app.use(session({
     secret: process.env.COOKIE_SECRET,
