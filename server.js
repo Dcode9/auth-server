@@ -14,7 +14,6 @@ const PORT = process.env.PORT || 3000;
 
 // --- DATABASE CLIENT (using ioredis) ---
 const kv = new Redis(process.env.REDIS_URL, {
-    // Add a connection timeout for better error handling
     connectTimeout: 10000 
 });
 
@@ -23,20 +22,28 @@ kv.on('error', (err) => console.error('Redis connection error:', err));
 
 // --- MIDDLEWARE SETUP ---
 
-// **FIX:** Using a more robust CORS configuration for serverless environments.
+// **FIX:** Added enhanced logging to the CORS configuration to identify the exact origin.
 const allowedOrigins = ['https://dverse.fun', 'https://games.dverse.fun', 'https://authfordev.dverse.fun'];
 const corsOptions = {
   origin: function (origin, callback) {
-    // Allow requests if the origin is in our whitelist.
+    // This log is the most important part for debugging.
+    console.log(`CORS check for origin: ${origin}`);
+    
     if (allowedOrigins.indexOf(origin) !== -1 || !origin) {
+      console.log(`CORS allowed for origin: ${origin}`);
       callback(null, true);
     } else {
+      console.error(`CORS blocked for origin: ${origin}`);
       callback(new Error('Not allowed by CORS'));
     }
   },
   credentials: true
 };
+
+// **FIX:** Handle pre-flight OPTIONS requests explicitly before other routes.
+app.options('*', cors(corsOptions)); 
 app.use(cors(corsOptions));
+
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
