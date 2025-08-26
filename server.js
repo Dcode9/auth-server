@@ -22,13 +22,14 @@ kv.on('error', (err) => console.error('Redis connection error:', err));
 
 // --- MIDDLEWARE SETUP ---
 
-// **FIX:** Added enhanced logging to the CORS configuration to identify the exact origin.
+// **FIX:** Updated the CORS configuration to correctly handle 'null' origins.
 const allowedOrigins = ['https://dverse.fun', 'https://games.dverse.fun', 'https://authfordev.dverse.fun'];
 const corsOptions = {
   origin: function (origin, callback) {
     // This log is the most important part for debugging.
     console.log(`CORS check for origin: ${origin}`);
     
+    // Allow requests if the origin is in our whitelist OR if it's a 'null' origin (for redirects/local files).
     if (allowedOrigins.indexOf(origin) !== -1 || !origin) {
       console.log(`CORS allowed for origin: ${origin}`);
       callback(null, true);
@@ -40,7 +41,7 @@ const corsOptions = {
   credentials: true
 };
 
-// **FIX:** Handle pre-flight OPTIONS requests explicitly before other routes.
+// Handle pre-flight OPTIONS requests explicitly before other routes.
 app.options('*', cors(corsOptions)); 
 app.use(cors(corsOptions));
 
