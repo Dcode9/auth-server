@@ -7,15 +7,6 @@ const Redis = require('ioredis');
 const cors = require('cors'); // Import the CORS library
 require('dotenv').config();
 
-// --- ENVIRONMENT VARIABLE VALIDATION ---
-console.log('--- Checking Environment Variables ---');
-const requiredEnvVars = [
-  'GOOGLE_CLIENT_ID',
-  'GOOGLE_CLIENT_SECRET',
-  'COOKIE_SECRET',
-  'ADMIN_PASSWORD',
-  'REDIS_URL'
-];
 // --- INITIALIZATION ---
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -28,9 +19,18 @@ kv.on('error', (err) => console.error('Redis connection error:', err));
 
 // --- MIDDLEWARE SETUP ---
 
-// **FIX:** Configure CORS to explicitly allow requests ONLY from your frontend domains.
+// **FIX:** Using a more robust CORS configuration function for serverless environments.
+const allowedOrigins = ['https://dverse.fun', 'https://games.dverse.fun'];
 const corsOptions = {
-  origin: ['https://dverse.fun', 'https://games.dverse.fun'],
+  origin: function (origin, callback) {
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.indexOf(origin) === -1) {
+      const msg = 'The CORS policy for this site does not allow access from the specified Origin.';
+      return callback(new Error(msg), false);
+    }
+    return callback(null, true);
+  },
   credentials: true // This is crucial for sending cookies
 };
 app.use(cors(corsOptions));
