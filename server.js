@@ -22,8 +22,8 @@ kv.on('error', (err) => console.error('Redis connection error:', err));
 
 // --- MIDDLEWARE SETUP ---
 
-// **FIX:** Using a more robust and flexible CORS configuration for Vercel.
-const allowedOrigins = ['https://dverse.fun', 'https://games.dverse.fun', 'https://authfordev.dverse.fun'];
+// **FIX:** Using a more robust CORS configuration with an explicit pre-flight handler.
+const allowedOrigins = ['https://dverse.fun', 'https://www.dverse.fun', 'https://games.dverse.fun', 'https://authfordev.dverse.fun'];
 const corsOptions = {
   origin: function (origin, callback) {
     console.log(`CORS check for origin: ${origin}`);
@@ -37,7 +37,10 @@ const corsOptions = {
   },
   credentials: true
 };
-// Apply CORS middleware to all routes
+
+// **FIX:** Handle pre-flight OPTIONS requests explicitly before other routes.
+// This is crucial for browsers to allow the actual GET/POST requests.
+app.options('*', cors(corsOptions)); 
 app.use(cors(corsOptions));
 
 
