@@ -1,12 +1,12 @@
 // --- DEPENDENCIES ---
 const express = require('express');
 const session = require('express-session');
-const passport = require('passport');
+const passport =require('passport');
 const GoogleStrategy = require('passport-google-oauth20').Strategy;
 const { createClient } = require('@vercel/kv');
 require('dotenv').config();
 
-// --- ENVIRONMENT VARIABLE VALIDATION (IMPROVED FOR DEBUGGING) ---
+// --- ENVIRONMENT VARIABLE VALIDATION ---
 console.log('--- Checking Environment Variables ---');
 const requiredEnvVars = [
   'GOOGLE_CLIENT_ID',
@@ -28,7 +28,6 @@ for (const varName of requiredEnvVars) {
 }
 console.log('------------------------------------');
 
-// Exit gracefully if any required variable is missing.
 if (!allVarsPresent) {
   console.error('One or more required environment variables are missing. Exiting.');
   process.exit(1);
@@ -40,7 +39,6 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 // --- VERCEL KV DATABASE CLIENT ---
-// This will now only run if the variables were confirmed to be present.
 const kv = createClient({
   url: process.env.KV_URL,
   token: process.env.KV_TOKEN,
@@ -69,9 +67,10 @@ passport.use(new GoogleStrategy({
   async (accessToken, refreshToken, profile, done) => {
     const email = profile.emails[0].value;
     
-    let user = await kv.get(email);
+    // Use kv.exists to check if the user is new
+    const userExists = await kv.exists(email);
 
-    if (!user) {
+    if (!userExists) {
         console.log(`New user detected: ${email}. Creating account.`);
         const newUser = {
             name: profile.displayName,
@@ -79,7 +78,10 @@ passport.use(new GoogleStrategy({
             avatarUrl: profile.photos[0].value,
             credits: 100
         };
+        // Save the new user's data
         await kv.set(email, JSON.stringify(newUser));
+        // **FIX:** Add the new user's email to our dedicated user list (a Redis Set)
+        await kv.sadd('users_set', email);
     } else {
         console.log(`Existing user logged in: ${email}`);
     }
@@ -126,12 +128,12 @@ app.get('/api/user', async (req, res) => {
         return res.status(401).json({ error: 'Unauthorized: No session token' });
     }
 
-    const user = await kv.get(token);
-    if (!user) {
+    const userJson = await kv.get(token);
+    if (!userJson) {
         return res.status(401).json({ error: 'Unauthorized: Invalid session' });
     }
 
-    res.json(JSON.parse(user));
+    res.json(JSON.parse(userJson));
 });
 
 // 4. The /admin Endpoint (Password Protected)
@@ -146,12 +148,14 @@ app.use('/admin', basicAuth({
 // GET route for the admin page
 app.get('/admin', async (req, res) => {
     let userListHtml = '';
-    const userEmails = await kv.keys('*'); 
+    
+    // **FIX:** Use the efficient `smembers` to get our user list instead of the slow `keys(*)`
+    const userEmails = await kv.smembers('users_set'); 
 
     for (const email of userEmails) {
-        const userData = await kv.get(email);
-        if (userData) {
-            const user = JSON.parse(userData);
+        const userDataJson = await kv.get(email);
+        if (userDataJson) {
+            const user = JSON.parse(userDataJson);
             userListHtml += `
                 <div style="border: 1px solid #ccc; padding: 10px; margin-bottom: 10px; border-radius: 5px;">
                     <h3>${user.name}</h3>
@@ -171,17 +175,17 @@ app.get('/admin', async (req, res) => {
     res.send(`
         <!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>Admin Dashboard</title>
         <style>body{font-family:sans-serif;padding:20px;} h1{color:#333;}</style></head>
-        <body><h1>User Management</h1>${userListHtml || '<p>No users found.</p>'}</body></html>
+        <body><h1>User Management</h1>${userListHtml || '<p>No users have signed in yet.</p>'}</body></html>
     `);
 });
 
 // POST route for updating credits from the admin page
 app.post('/admin', async (req, res) => {
     const { email, credits } = req.body;
-    const user = await kv.get(email);
+    const userJson = await kv.get(email);
 
-    if (user) {
-        const userData = JSON.parse(user);
+    if (userJson) {
+        const userData = JSON.parse(userJson);
         userData.credits = parseInt(credits, 10);
         await kv.set(email, JSON.stringify(userData));
         console.log(`Updated credits for ${email} to ${credits}`);
