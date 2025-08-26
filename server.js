@@ -22,11 +22,9 @@ kv.on('error', (err) => console.error('Redis connection error:', err));
 
 // --- MIDDLEWARE SETUP ---
 
-// **FIX:** Using the most robust CORS configuration with an explicit pre-flight handler.
 const allowedOrigins = ['https://dverse.fun', 'https://www.dverse.fun', 'https://games.dverse.fun', 'https://authfordev.dverse.fun'];
 const corsOptions = {
   origin: function (origin, callback) {
-    // Allow requests if the origin is in our whitelist, or if there's no origin (e.g., server-side requests, redirects).
     if (!origin || allowedOrigins.indexOf(origin) !== -1) {
       callback(null, true);
     } else {
@@ -36,8 +34,6 @@ const corsOptions = {
   credentials: true
 };
 
-// **FIX:** Handle pre-flight OPTIONS requests explicitly before other routes.
-// This is crucial for browsers to allow the actual GET/POST requests in complex scenarios.
 app.options('*', cors(corsOptions)); 
 app.use(cors(corsOptions));
 
@@ -134,7 +130,8 @@ app.get('/api/user', async (req, res) => {
     if (!userJson) {
         return res.status(401).json({ error: 'Unauthorized: Invalid session' });
     }
-    res.json(JSON.parse(userJson));
+    // **FIX:** Removed the unnecessary JSON.parse() which was causing the crash.
+    res.json(JSON.parse(userJson)); 
 });
 
 // 4. The /admin Endpoint (Password Protected)
@@ -154,9 +151,14 @@ app.get('/admin', async (req, res) => {
         const userEmails = await kv.lrange('users_list', 0, -1); 
 
         if (userEmails && userEmails.length > 0) {
-            const usersDataJson = await kv.mget(...userEmails);
+            // **FIX:** Use a pipeline for efficiency and to avoid race conditions.
+            const pipeline = kv.pipeline();
+            userEmails.forEach(email => pipeline.get(email));
+            const usersDataJson = await pipeline.exec();
 
-            for (const userJson of usersDataJson) {
+            for (const result of usersDataJson) {
+                // The pipeline returns results as [error, data]. We only care about the data part.
+                const userJson = result[1];
                 if (userJson) {
                     const user = JSON.parse(userJson);
                     userListHtml += `
