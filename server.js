@@ -4,7 +4,7 @@ const session = require('express-session');
 const passport = require('passport');
 const GoogleStrategy = require('passport-google-oauth20').Strategy;
 const Redis = require('ioredis');
-const cors = require('cors');
+const cors = require('cors'); // Import the CORS library
 require('dotenv').config();
 
 // --- ENVIRONMENT VARIABLE VALIDATION ---
@@ -92,7 +92,6 @@ app.get('/login', (req, res, next) => {
     if (redirect_url) {
         req.session.redirectUrl = redirect_url;
     }
-    // **FIX:** Added 'profile' scope to request profile picture permission.
     passport.authenticate('google', { scope: ['profile', 'email'] })(req, res, next);
 });
 
