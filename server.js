@@ -78,11 +78,8 @@ passport.use(new GoogleStrategy({
                 avatarUrl: profile.photos[0].value,
                 credits: 100
             };
-            // The @vercel/kv library handles JSON automatically.
-            // We no longer need to use JSON.stringify().
             await Promise.all([
                 kv.set(email, newUser),
-                // Use a simple list (lpush) which is more reliable.
                 kv.lpush('users_list', email)
             ]);
         } else {
@@ -139,7 +136,6 @@ app.get('/api/user', async (req, res) => {
     if (!user) {
         return res.status(401).json({ error: 'Unauthorized: Invalid session' });
     }
-    // The library returns a parsed object, no need for JSON.parse()
     res.json(user);
 });
 
@@ -157,15 +153,17 @@ app.get('/admin', async (req, res) => {
     try {
         let userListHtml = '';
         
-        // Use the more reliable lrange to get all items from our user list.
+        console.log("Attempting to fetch user list from 'users_list'...");
         const userEmails = await kv.lrange('users_list', 0, -1); 
+        console.log("Successfully fetched user list:", userEmails);
 
         if (userEmails && userEmails.length > 0) {
-            // Fetch all user data objects in a single batch request.
+            console.log("Fetching details for each user...");
             const usersData = await kv.mget(...userEmails);
+            console.log("Successfully fetched user details.");
 
             for (const user of usersData) {
-                if (user) { // user is already a parsed object
+                if (user) {
                     userListHtml += `
                         <div style="border: 1px solid #ccc; padding: 10px; margin-bottom: 10px; border-radius: 5px;">
                             <h3>${user.name}</h3>
@@ -189,8 +187,16 @@ app.get('/admin', async (req, res) => {
             <body><h1>User Management</h1>${userListHtml || '<p>No users have signed in yet. Please sign in with a new account to populate the list.</p>'}</body></html>
         `);
     } catch (error) {
-        console.error("Error loading admin page:", error);
-        res.status(500).send("<h1>Error</h1><p>Could not load user data from the database.</p>");
+        // This is the new, enhanced error reporting.
+        console.error("--- DETAILED ERROR IN /ADMIN ---");
+        console.error(error);
+        console.error("---------------------------------");
+        res.status(500).send(`
+            <h1>Error</h1>
+            <p>Could not load user data from the database.</p>
+            <h2>Error Details:</h2>
+            <pre style="background-color: #eee; padding: 10px; border-radius: 5px;">${error.stack || error.message}</pre>
+        `);
     }
 });
 
@@ -201,7 +207,6 @@ app.post('/admin', async (req, res) => {
 
     if (user) {
         user.credits = parseInt(credits, 10);
-        // Save the updated object back to the database.
         await kv.set(email, user);
         console.log(`Updated credits for ${email} to ${credits}`);
     } else {
