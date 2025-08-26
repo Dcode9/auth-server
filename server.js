@@ -1,7 +1,7 @@
 // --- DEPENDENCIES ---
 const express = require('express');
 const session = require('express-session');
-const passport =require('passport');
+const passport = require('passport');
 const GoogleStrategy = require('passport-google-oauth20').Strategy;
 const { createClient } = require('@vercel/kv');
 require('dotenv').config();
@@ -65,28 +65,33 @@ passport.use(new GoogleStrategy({
     proxy: true
   },
   async (accessToken, refreshToken, profile, done) => {
-    const email = profile.emails[0].value;
-    
-    // Use kv.exists to check if the user is new
-    const userExists = await kv.exists(email);
+    try {
+        const email = profile.emails[0].value;
+        
+        const userExists = await kv.exists(email);
 
-    if (!userExists) {
-        console.log(`New user detected: ${email}. Creating account.`);
-        const newUser = {
-            name: profile.displayName,
-            email: email,
-            avatarUrl: profile.photos[0].value,
-            credits: 100
-        };
-        // Save the new user's data
-        await kv.set(email, JSON.stringify(newUser));
-        // **FIX:** Add the new user's email to our dedicated user list (a Redis Set)
-        await kv.sadd('users_set', email);
-    } else {
-        console.log(`Existing user logged in: ${email}`);
+        if (!userExists) {
+            console.log(`New user detected: ${email}. Creating account.`);
+            const newUser = {
+                name: profile.displayName,
+                email: email,
+                avatarUrl: profile.photos[0].value,
+                credits: 100
+            };
+            // Use Promise.all to run both database writes concurrently
+            await Promise.all([
+                kv.set(email, JSON.stringify(newUser)),
+                kv.sadd('users_set', email) // Add the new user's email to our dedicated user list
+            ]);
+        } else {
+            console.log(`Existing user logged in: ${email}`);
+        }
+        
+        return done(null, profile);
+    } catch (error) {
+        console.error("Error in Passport strategy:", error);
+        return done(error, null);
     }
-    
-    return done(null, profile);
   }
 ));
 
@@ -147,36 +152,45 @@ app.use('/admin', basicAuth({
 
 // GET route for the admin page
 app.get('/admin', async (req, res) => {
-    let userListHtml = '';
-    
-    // **FIX:** Use the efficient `smembers` to get our user list instead of the slow `keys(*)`
-    const userEmails = await kv.smembers('users_set'); 
+    try {
+        let userListHtml = '';
+        
+        // Get the list of all user emails from our set
+        const userEmails = await kv.smembers('users_set'); 
 
-    for (const email of userEmails) {
-        const userDataJson = await kv.get(email);
-        if (userDataJson) {
-            const user = JSON.parse(userDataJson);
-            userListHtml += `
-                <div style="border: 1px solid #ccc; padding: 10px; margin-bottom: 10px; border-radius: 5px;">
-                    <h3>${user.name}</h3>
-                    <p><strong>Email:</strong> ${user.email}</p>
-                    <p><strong>Credits:</strong> ${user.credits}</p>
-                    <form action="/admin" method="POST" style="margin-top: 10px;">
-                        <input type="hidden" name="email" value="${user.email}">
-                        <label for="credits-${user.email}">New Credits:</label>
-                        <input type="number" id="credits-${user.email}" name="credits" value="${user.credits}" required>
-                        <button type="submit">Update</button>
-                    </form>
-                </div>
-            `;
+        if (userEmails && userEmails.length > 0) {
+            // Fetch all user data objects in a single, efficient batch request
+            const usersDataJson = await kv.mget(...userEmails);
+
+            for (const userDataJson of usersDataJson) {
+                if (userDataJson) {
+                    const user = userDataJson; // kv.mget returns the parsed object directly
+                    userListHtml += `
+                        <div style="border: 1px solid #ccc; padding: 10px; margin-bottom: 10px; border-radius: 5px;">
+                            <h3>${user.name}</h3>
+                            <p><strong>Email:</strong> ${user.email}</p>
+                            <p><strong>Credits:</strong> ${user.credits}</p>
+                            <form action="/admin" method="POST" style="margin-top: 10px;">
+                                <input type="hidden" name="email" value="${user.email}">
+                                <label for="credits-${user.email}">New Credits:</label>
+                                <input type="number" id="credits-${user.email}" name="credits" value="${user.credits}" required>
+                                <button type="submit">Update</button>
+                            </form>
+                        </div>
+                    `;
+                }
+            }
         }
-    }
 
-    res.send(`
-        <!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>Admin Dashboard</title>
-        <style>body{font-family:sans-serif;padding:20px;} h1{color:#333;}</style></head>
-        <body><h1>User Management</h1>${userListHtml || '<p>No users have signed in yet.</p>'}</body></html>
-    `);
+        res.send(`
+            <!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>Admin Dashboard</title>
+            <style>body{font-family:sans-serif;padding:20px;} h1{color:#333;}</style></head>
+            <body><h1>User Management</h1>${userListHtml || '<p>No users have signed in yet.</p>'}</body></html>
+        `);
+    } catch (error) {
+        console.error("Error loading admin page:", error);
+        res.status(500).send("<h1>Error</h1><p>Could not load user data from the database.</p>");
+    }
 });
 
 // POST route for updating credits from the admin page
@@ -185,7 +199,7 @@ app.post('/admin', async (req, res) => {
     const userJson = await kv.get(email);
 
     if (userJson) {
-        const userData = JSON.parse(userJson);
+        const userData = userJson; // kv.get returns the parsed object
         userData.credits = parseInt(credits, 10);
         await kv.set(email, JSON.stringify(userData));
         console.log(`Updated credits for ${email} to ${credits}`);
