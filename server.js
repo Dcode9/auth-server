@@ -22,25 +22,12 @@ kv.on('error', (err) => console.error('Redis connection error:', err));
 
 // --- MIDDLEWARE SETUP ---
 
-// **FIX:** Using a more robust CORS configuration with an explicit pre-flight handler.
+// **FIX:** Using a more direct and standard CORS configuration.
 const allowedOrigins = ['https://dverse.fun', 'https://www.dverse.fun', 'https://games.dverse.fun', 'https://authfordev.dverse.fun'];
 const corsOptions = {
-  origin: function (origin, callback) {
-    console.log(`CORS check for origin: ${origin}`);
-    // Allow requests if the origin is in our whitelist, or if there's no origin (e.g., server-side requests, redirects).
-    if (!origin || allowedOrigins.indexOf(origin) !== -1) {
-      callback(null, true);
-    } else {
-      console.error(`CORS blocked for origin: ${origin}`);
-      callback(new Error('Not allowed by CORS'));
-    }
-  },
+  origin: allowedOrigins,
   credentials: true
 };
-
-// **FIX:** Handle pre-flight OPTIONS requests explicitly before other routes.
-// This is crucial for browsers to allow the actual GET/POST requests.
-app.options('*', cors(corsOptions)); 
 app.use(cors(corsOptions));
 
 
@@ -127,15 +114,25 @@ app.get('/auth/google/callback',
 
 // 3. The /api/user Endpoint (Protected)
 app.get('/api/user', async (req, res) => {
+    // **FIX:** Added detailed logging to see the state of cookies.
+    console.log('--- /api/user endpoint hit ---');
+    console.log('Request Headers:', req.headers);
+    console.log('Parsed Cookies:', req.cookies);
+
     const token = req.cookies.dverseSessionToken;
     if (!token) {
+        console.error('Unauthorized: No session token found in cookies.');
         return res.status(401).json({ error: 'Unauthorized: No session token' });
     }
 
+    console.log(`Found token: ${token}. Verifying...`);
     const userJson = await kv.get(token);
     if (!userJson) {
+        console.error(`Unauthorized: Token "${token}" not found in database.`);
         return res.status(401).json({ error: 'Unauthorized: Invalid session' });
     }
+
+    console.log('Successfully verified user. Sending data.');
     res.json(JSON.parse(userJson));
 });
 
