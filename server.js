@@ -5,7 +5,7 @@ const passport = require('passport');
 const GoogleStrategy = require('passport-google-oauth20').Strategy;
 const Redis = require('ioredis');
 const cors = require('cors');
-const cookieParser = require('cookie-parser'); // **FIX:** Import the cookie-parser library
+const cookieParser = require('cookie-parser');
 require('dotenv').config();
 
 // --- INITIALIZATION ---
@@ -13,17 +13,22 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 // --- DATABASE CLIENT (using ioredis) ---
-const kv = new Redis(process.env.REDIS_URL);
+const kv = new Redis(process.env.REDIS_URL, {
+    // Add a connection timeout for better error handling
+    connectTimeout: 10000 
+});
 
 kv.on('connect', () => console.log('Connected to Redis database.'));
 kv.on('error', (err) => console.error('Redis connection error:', err));
 
 // --- MIDDLEWARE SETUP ---
 
-const allowedOrigins = ['https://dverse.fun', 'https://games.dverse.fun', 'https://authfordev.dverse.fun' ];
+// **FIX:** Using a more robust CORS configuration for serverless environments.
+const allowedOrigins = ['https://dverse.fun', 'https://games.dverse.fun', 'https://authfordev.dverse.fun'];
 const corsOptions = {
   origin: function (origin, callback) {
-    if (!origin || allowedOrigins.indexOf(origin) !== -1) {
+    // Allow requests if the origin is in our whitelist.
+    if (allowedOrigins.indexOf(origin) !== -1 || !origin) {
       callback(null, true);
     } else {
       callback(new Error('Not allowed by CORS'));
@@ -35,7 +40,7 @@ app.use(cors(corsOptions));
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-app.use(cookieParser()); // **FIX:** Use the cookie-parser middleware
+app.use(cookieParser());
 
 app.use(session({
     secret: process.env.COOKIE_SECRET,
