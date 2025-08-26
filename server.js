@@ -22,13 +22,20 @@ kv.on('error', (err) => console.error('Redis connection error:', err));
 
 // --- MIDDLEWARE SETUP ---
 
-// **FIX:** Using a more direct and standard CORS configuration.
+// **FIX:** Using the most robust CORS configuration for Vercel environments.
 const allowedOrigins = ['https://dverse.fun', 'https://www.dverse.fun', 'https://games.dverse.fun', 'https://authfordev.dverse.fun'];
-const corsOptions = {
-  origin: allowedOrigins,
-  credentials: true
-};
-app.use(cors(corsOptions));
+app.use(cors({
+  origin: (origin, callback) => {
+    // Allow requests with no origin (like mobile apps or curl requests)
+    // and requests from our whitelisted domains.
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  credentials: true,
+}));
 
 
 app.use(express.json());
@@ -114,7 +121,6 @@ app.get('/auth/google/callback',
 
 // 3. The /api/user Endpoint (Protected)
 app.get('/api/user', async (req, res) => {
-    // **FIX:** Added detailed logging to see the state of cookies.
     console.log('--- /api/user endpoint hit ---');
     console.log('Request Headers:', req.headers);
     console.log('Parsed Cookies:', req.cookies);
