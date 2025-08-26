@@ -4,7 +4,7 @@ const session = require('express-session');
 const passport = require('passport');
 const GoogleStrategy = require('passport-google-oauth20').Strategy;
 const Redis = require('ioredis');
-const cors = require('cors'); // Import the CORS library
+const cors = require('cors');
 require('dotenv').config();
 
 // --- ENVIRONMENT VARIABLE VALIDATION ---
@@ -28,9 +28,9 @@ kv.on('error', (err) => console.error('Redis connection error:', err));
 
 // --- MIDDLEWARE SETUP ---
 
-// **FIX:** Configure CORS to allow requests from your frontend domains.
+// **FIX:** Configure CORS to explicitly allow requests ONLY from your frontend domains.
 const corsOptions = {
-  origin: ['https://dverse.fun', 'https://games.dverse.fun'], // Add all your frontend domains here
+  origin: ['https://dverse.fun', 'https://games.dverse.fun'],
   credentials: true // This is crucial for sending cookies
 };
 app.use(cors(corsOptions));
@@ -87,12 +87,13 @@ passport.use(new GoogleStrategy({
 // --- API ENDPOINTS ---
 
 // 1. The /login Endpoint
-app.get('/login', (req, res) => {
+app.get('/login', (req, res, next) => {
     const { redirect_url } = req.query;
     if (redirect_url) {
         req.session.redirectUrl = redirect_url;
     }
-    passport.authenticate('google', { scope: ['profile', 'email'] })(req, res);
+    // **FIX:** Added 'profile' scope to request profile picture permission.
+    passport.authenticate('google', { scope: ['profile', 'email'] })(req, res, next);
 });
 
 // 2. The /auth/google/callback Endpoint
@@ -127,19 +128,6 @@ app.get('/api/user', async (req, res) => {
         return res.status(401).json({ error: 'Unauthorized: Invalid session' });
     }
     res.json(JSON.parse(userJson));
-});
-
-// 5. The /logout Endpoint
-app.get('/logout', (req, res) => {
-    // Clear the secure, httpOnly cookie
-    res.clearCookie('dverseSessionToken', {
-        domain: '.dverse.fun',
-        path: '/'
-    });
-
-    // Redirect back to the provided URL, or to the main portal as a fallback
-    const redirectUrl = req.query.redirect_url || 'https://dverse.fun';
-    res.redirect(redirectUrl);
 });
 
 // 4. The /admin Endpoint (Password Protected)
@@ -207,6 +195,17 @@ app.post('/admin', async (req, res) => {
     }
     res.redirect('/admin');
 });
+
+// 5. The /logout Endpoint
+app.get('/logout', (req, res) => {
+    res.clearCookie('dverseSessionToken', {
+        domain: '.dverse.fun',
+        path: '/'
+    });
+    const redirectUrl = req.query.redirect_url || 'https://dverse.fun';
+    res.redirect(redirectUrl);
+});
+
 
 // --- START SERVER ---
 app.listen(PORT, () => {
