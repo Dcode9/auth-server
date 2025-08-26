@@ -7,14 +7,15 @@ const { createClient } = require('@vercel/kv');
 require('dotenv').config();
 
 // --- ENVIRONMENT VARIABLE VALIDATION ---
+// We now check for the modern, Vercel-recommended REST API variables.
 console.log('--- Checking Environment Variables ---');
 const requiredEnvVars = [
   'GOOGLE_CLIENT_ID',
   'GOOGLE_CLIENT_SECRET',
   'COOKIE_SECRET',
   'ADMIN_PASSWORD',
-  'KV_URL',
-  'KV_TOKEN'
+  'KV_REST_API_URL', // Using the correct variable
+  'KV_REST_API_TOKEN' // Using the correct variable
 ];
 let allVarsPresent = true;
 
@@ -39,9 +40,10 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 // --- VERCEL KV DATABASE CLIENT ---
+// This now uses the correct variables that do not cause the credential error.
 const kv = createClient({
-  url: process.env.KV_URL,
-  token: process.env.KV_TOKEN,
+  url: process.env.KV_REST_API_URL,
+  token: process.env.KV_REST_API_TOKEN,
 });
 
 // --- MIDDLEWARE SETUP ---
@@ -153,14 +155,10 @@ app.get('/admin', async (req, res) => {
     try {
         let userListHtml = '';
         
-        console.log("Attempting to fetch user list from 'users_list'...");
         const userEmails = await kv.lrange('users_list', 0, -1); 
-        console.log("Successfully fetched user list:", userEmails);
 
         if (userEmails && userEmails.length > 0) {
-            console.log("Fetching details for each user...");
             const usersData = await kv.mget(...userEmails);
-            console.log("Successfully fetched user details.");
 
             for (const user of usersData) {
                 if (user) {
@@ -187,7 +185,6 @@ app.get('/admin', async (req, res) => {
             <body><h1>User Management</h1>${userListHtml || '<p>No users have signed in yet. Please sign in with a new account to populate the list.</p>'}</body></html>
         `);
     } catch (error) {
-        // This is the new, enhanced error reporting.
         console.error("--- DETAILED ERROR IN /ADMIN ---");
         console.error(error);
         console.error("---------------------------------");
