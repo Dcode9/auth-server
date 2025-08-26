@@ -7,15 +7,14 @@ const { createClient } = require('@vercel/kv');
 require('dotenv').config();
 
 // --- ENVIRONMENT VARIABLE VALIDATION ---
-// We now check for the modern, Vercel-recommended REST API variables.
+// We now look for the REDIS_URL that Vercel provides automatically.
 console.log('--- Checking Environment Variables ---');
 const requiredEnvVars = [
   'GOOGLE_CLIENT_ID',
   'GOOGLE_CLIENT_SECRET',
   'COOKIE_SECRET',
   'ADMIN_PASSWORD',
-  'KV_REST_API_URL', // Using the correct variable
-  'KV_REST_API_TOKEN' // Using the correct variable
+  'REDIS_URL' // The variable Vercel provides.
 ];
 let allVarsPresent = true;
 
@@ -39,11 +38,27 @@ if (!allVarsPresent) {
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// --- VERCEL KV DATABASE CLIENT ---
-// This now uses the correct variables that do not cause the credential error.
+// --- VERCEL KV DATABASE CLIENT (with token extraction) ---
+// This block intelligently extracts the token from the REDIS_URL.
+const redisUrl = process.env.REDIS_URL;
+let redisToken = '';
+try {
+    // The token is the part of the URL between the ':' and the '@'
+    const match = redisUrl.match(/default:(.*?)@/);
+    if (match && match[1]) {
+        redisToken = match[1];
+        console.log('[OK] Successfully extracted token from REDIS_URL.');
+    } else {
+        throw new Error('Could not parse token from REDIS_URL');
+    }
+} catch (error) {
+    console.error('[FATAL ERROR] Could not extract token from REDIS_URL. Please check its format.');
+    process.exit(1);
+}
+
 const kv = createClient({
-  url: process.env.KV_REST_API_URL,
-  token: process.env.KV_REST_API_TOKEN,
+  url: redisUrl,
+  token: redisToken,
 });
 
 // --- MIDDLEWARE SETUP ---
