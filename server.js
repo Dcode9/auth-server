@@ -3,7 +3,8 @@ const express = require('express');
 const session = require('express-session');
 const passport = require('passport');
 const GoogleStrategy = require('passport-google-oauth20').Strategy;
-const Redis = require('ioredis'); // Using the robust ioredis library
+const Redis = require('ioredis');
+const cors = require('cors'); // Import the CORS library
 require('dotenv').config();
 
 // --- ENVIRONMENT VARIABLE VALIDATION ---
@@ -15,36 +16,25 @@ const requiredEnvVars = [
   'ADMIN_PASSWORD',
   'REDIS_URL'
 ];
-let allVarsPresent = true;
-
-for (const varName of requiredEnvVars) {
-  if (process.env[varName]) {
-    console.log(`[OK] ${varName} is present.`);
-  } else {
-    console.error(`[FATAL ERROR] Environment variable "${varName}" is NOT DEFINED.`);
-    allVarsPresent = false;
-  }
-}
-console.log('------------------------------------');
-
-if (!allVarsPresent) {
-  console.error('One or more required environment variables are missing. Exiting.');
-  process.exit(1);
-}
-
 // --- INITIALIZATION ---
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 // --- DATABASE CLIENT (using ioredis) ---
-// ioredis is designed to handle the REDIS_URL format directly and is very stable.
 const kv = new Redis(process.env.REDIS_URL);
 
 kv.on('connect', () => console.log('Connected to Redis database.'));
 kv.on('error', (err) => console.error('Redis connection error:', err));
 
-
 // --- MIDDLEWARE SETUP ---
+
+// **FIX:** Configure CORS to allow requests from your frontend domains.
+const corsOptions = {
+  origin: ['https://dverse.fun', 'https://games.dverse.fun'], // Add all your frontend domains here
+  credentials: true // This is crucial for sending cookies
+};
+app.use(cors(corsOptions));
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
@@ -78,7 +68,6 @@ passport.use(new GoogleStrategy({
                 avatarUrl: profile.photos[0].value,
                 credits: 100
             };
-            // Use a pipeline for atomic operations
             const pipeline = kv.pipeline();
             pipeline.set(email, JSON.stringify(newUser));
             pipeline.lpush('users_list', email);
