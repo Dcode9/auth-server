@@ -22,16 +22,13 @@ kv.on('error', (err) => console.error('Redis connection error:', err));
 
 // --- MIDDLEWARE SETUP ---
 
-// **FIX:** Updated the CORS configuration to correctly handle 'null' origins.
+// **FIX:** Using a more robust and flexible CORS configuration for Vercel.
 const allowedOrigins = ['https://dverse.fun', 'https://games.dverse.fun', 'https://authfordev.dverse.fun'];
 const corsOptions = {
   origin: function (origin, callback) {
-    // This log is the most important part for debugging.
     console.log(`CORS check for origin: ${origin}`);
-    
-    // Allow requests if the origin is in our whitelist OR if it's a 'null' origin (for redirects/local files).
-    if (allowedOrigins.indexOf(origin) !== -1 || !origin) {
-      console.log(`CORS allowed for origin: ${origin}`);
+    // Allow requests if the origin is in our whitelist, or if there's no origin (e.g., server-side requests, redirects).
+    if (!origin || allowedOrigins.indexOf(origin) !== -1) {
       callback(null, true);
     } else {
       console.error(`CORS blocked for origin: ${origin}`);
@@ -40,9 +37,7 @@ const corsOptions = {
   },
   credentials: true
 };
-
-// Handle pre-flight OPTIONS requests explicitly before other routes.
-app.options('*', cors(corsOptions)); 
+// Apply CORS middleware to all routes
 app.use(cors(corsOptions));
 
 
