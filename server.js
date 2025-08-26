@@ -20,7 +20,7 @@ kv.on('error', (err) => console.error('Redis connection error:', err));
 
 // --- MIDDLEWARE SETUP ---
 
-const allowedOrigins = ['https://dverse.fun', 'https://games.dverse.fun'];
+const allowedOrigins = ['https://dverse.fun', 'https://games.dverse.fun', 'https://authfordev.dverse.fun' ];
 const corsOptions = {
   origin: function (origin, callback) {
     if (!origin || allowedOrigins.indexOf(origin) !== -1) {
