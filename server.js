@@ -3,18 +3,17 @@ const express = require('express');
 const session = require('express-session');
 const passport = require('passport');
 const GoogleStrategy = require('passport-google-oauth20').Strategy;
-const { createClient } = require('@vercel/kv');
+const Redis = require('ioredis'); // Using the robust ioredis library
 require('dotenv').config();
 
 // --- ENVIRONMENT VARIABLE VALIDATION ---
-// We now look for the REDIS_URL that Vercel provides automatically.
 console.log('--- Checking Environment Variables ---');
 const requiredEnvVars = [
   'GOOGLE_CLIENT_ID',
   'GOOGLE_CLIENT_SECRET',
   'COOKIE_SECRET',
   'ADMIN_PASSWORD',
-  'REDIS_URL' // The variable Vercel provides.
+  'REDIS_URL'
 ];
 let allVarsPresent = true;
 
@@ -33,33 +32,17 @@ if (!allVarsPresent) {
   process.exit(1);
 }
 
-
 // --- INITIALIZATION ---
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// --- VERCEL KV DATABASE CLIENT (with token extraction) ---
-// This block intelligently extracts the token from the REDIS_URL.
-const redisUrl = process.env.REDIS_URL;
-let redisToken = '';
-try {
-    // The token is the part of the URL between the ':' and the '@'
-    const match = redisUrl.match(/default:(.*?)@/);
-    if (match && match[1]) {
-        redisToken = match[1];
-        console.log('[OK] Successfully extracted token from REDIS_URL.');
-    } else {
-        throw new Error('Could not parse token from REDIS_URL');
-    }
-} catch (error) {
-    console.error('[FATAL ERROR] Could not extract token from REDIS_URL. Please check its format.');
-    process.exit(1);
-}
+// --- DATABASE CLIENT (using ioredis) ---
+// ioredis is designed to handle the REDIS_URL format directly and is very stable.
+const kv = new Redis(process.env.REDIS_URL);
 
-const kv = createClient({
-  url: redisUrl,
-  token: redisToken,
-});
+kv.on('connect', () => console.log('Connected to Redis database.'));
+kv.on('error', (err) => console.error('Redis connection error:', err));
+
 
 // --- MIDDLEWARE SETUP ---
 app.use(express.json());
@@ -95,10 +78,11 @@ passport.use(new GoogleStrategy({
                 avatarUrl: profile.photos[0].value,
                 credits: 100
             };
-            await Promise.all([
-                kv.set(email, newUser),
-                kv.lpush('users_list', email)
-            ]);
+            // Use a pipeline for atomic operations
+            const pipeline = kv.pipeline();
+            pipeline.set(email, JSON.stringify(newUser));
+            pipeline.lpush('users_list', email);
+            await pipeline.exec();
         } else {
             console.log(`Existing user logged in: ${email}`);
         }
@@ -149,11 +133,11 @@ app.get('/api/user', async (req, res) => {
         return res.status(401).json({ error: 'Unauthorized: No session token' });
     }
 
-    const user = await kv.get(token);
-    if (!user) {
+    const userJson = await kv.get(token);
+    if (!userJson) {
         return res.status(401).json({ error: 'Unauthorized: Invalid session' });
     }
-    res.json(user);
+    res.json(JSON.parse(userJson));
 });
 
 // 4. The /admin Endpoint (Password Protected)
@@ -173,10 +157,11 @@ app.get('/admin', async (req, res) => {
         const userEmails = await kv.lrange('users_list', 0, -1); 
 
         if (userEmails && userEmails.length > 0) {
-            const usersData = await kv.mget(...userEmails);
+            const usersDataJson = await kv.mget(...userEmails);
 
-            for (const user of usersData) {
-                if (user) {
+            for (const userJson of usersDataJson) {
+                if (userJson) {
+                    const user = JSON.parse(userJson);
                     userListHtml += `
                         <div style="border: 1px solid #ccc; padding: 10px; margin-bottom: 10px; border-radius: 5px;">
                             <h3>${user.name}</h3>
@@ -200,26 +185,20 @@ app.get('/admin', async (req, res) => {
             <body><h1>User Management</h1>${userListHtml || '<p>No users have signed in yet. Please sign in with a new account to populate the list.</p>'}</body></html>
         `);
     } catch (error) {
-        console.error("--- DETAILED ERROR IN /ADMIN ---");
-        console.error(error);
-        console.error("---------------------------------");
-        res.status(500).send(`
-            <h1>Error</h1>
-            <p>Could not load user data from the database.</p>
-            <h2>Error Details:</h2>
-            <pre style="background-color: #eee; padding: 10px; border-radius: 5px;">${error.stack || error.message}</pre>
-        `);
+        console.error("--- DETAILED ERROR IN /ADMIN ---", error);
+        res.status(500).send(`<h1>Error</h1><p>Could not load user data from the database.</p><h2>Error Details:</h2><pre>${error.stack || error.message}</pre>`);
     }
 });
 
 // POST route for updating credits from the admin page
 app.post('/admin', async (req, res) => {
     const { email, credits } = req.body;
-    const user = await kv.get(email);
+    const userJson = await kv.get(email);
 
-    if (user) {
-        user.credits = parseInt(credits, 10);
-        await kv.set(email, user);
+    if (userJson) {
+        const userData = JSON.parse(userJson);
+        userData.credits = parseInt(credits, 10);
+        await kv.set(email, JSON.stringify(userData));
         console.log(`Updated credits for ${email} to ${credits}`);
     } else {
         console.error(`Attempted to update non-existent user: ${email}`);
