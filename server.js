@@ -129,6 +129,19 @@ app.get('/api/user', async (req, res) => {
     res.json(JSON.parse(userJson));
 });
 
+// 5. The /logout Endpoint
+app.get('/logout', (req, res) => {
+    // Clear the secure, httpOnly cookie
+    res.clearCookie('dverseSessionToken', {
+        domain: '.dverse.fun',
+        path: '/'
+    });
+
+    // Redirect back to the provided URL, or to the main portal as a fallback
+    const redirectUrl = req.query.redirect_url || 'https://dverse.fun';
+    res.redirect(redirectUrl);
+});
+
 // 4. The /admin Endpoint (Password Protected)
 const basicAuth = require('express-basic-auth');
 
